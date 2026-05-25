@@ -120,10 +120,26 @@ function extractAuthBlock(body) {
   return null;
 }
 
-// Server auth proof: HMAC-SHA256(authBlock, SHA256(encryptionKey))
+// Barcha mumkin bo'lgan auth algoritmlarini hisoblash (qaysi biri to'g'ri ekanligini topish uchun)
+function computeAllAuths(authBlock) {
+  const keyRaw     = Buffer.from(ENCRYPTION_KEY);
+  const keyPadded  = Buffer.alloc(32); keyRaw.copy(keyPadded);          // "hrline1234\x00\x00..."
+  const keySha256  = crypto.createHash('sha256').update(keyRaw).digest(); // SHA256("hrline1234")
+
+  return {
+    hmac_sha256_key_padded : crypto.createHmac('sha256', keyPadded).update(authBlock).digest(),
+    hmac_sha256_key_raw    : crypto.createHmac('sha256', keyRaw).update(authBlock).digest(),
+    hmac_sha256_key_sha256 : crypto.createHmac('sha256', keySha256).update(authBlock).digest(),
+    sha256_key_plus_block  : crypto.createHash('sha256').update(Buffer.concat([keyPadded, authBlock])).digest(),
+    sha256_block_plus_key  : crypto.createHash('sha256').update(Buffer.concat([authBlock, keyPadded])).digest(),
+  };
+}
+
+// Hozircha eng ko'p ishlatiladigan: key zero-padded to 32
 function computeServerAuth(authBlock) {
-  const keyDerived = crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
-  return crypto.createHmac('sha256', keyDerived).update(authBlock).digest();
+  const keyPadded = Buffer.alloc(32);
+  Buffer.from(ENCRYPTION_KEY).copy(keyPadded);
+  return crypto.createHmac('sha256', keyPadded).update(authBlock).digest();
 }
 
 // -----------------------------------------------------------------------
@@ -184,14 +200,12 @@ const server = net.createServer(socket => {
         const authBlock = extractAuthBlock(body);
         let extraFields = Buffer.alloc(0);
         if (authBlock && authBlock.length > 0) {
-          const serverAuth = computeServerAuth(authBlock);
+          const auths = computeAllAuths(authBlock);
           console.log(`  Auth block (${authBlock.length}B): ${authBlock.toString('hex')}`);
-          console.log(`  Server auth: ${serverAuth.toString('hex')}`);
-          // [tag=0x29][len][hmac_32_bytes]
-          extraFields = Buffer.concat([
-            Buffer.from([0x29, serverAuth.length]),
-            serverAuth,
-          ]);
+          Object.entries(auths).forEach(([k, v]) => console.log(`    ${k}: ${v.toString('hex')}`));
+
+          const serverAuth = auths.hmac_sha256_key_padded; // << bu qatorni o'zgartiring
+          extraFields = Buffer.concat([Buffer.from([0x29, serverAuth.length]), serverAuth]);
         }
 
         const rspCmd = isV5 ? CMD.REG_RSP_V5 : CMD.REG_RSP;
