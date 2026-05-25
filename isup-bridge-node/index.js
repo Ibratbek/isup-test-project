@@ -32,14 +32,21 @@ const RESPONSES_PFX = 'hikvision:responses:';
 // -----------------------------------------------------------------------
 
 const CMD = {
-  REG_REQ:      Buffer.from([0x10, 0x52]),
-  REG_RSP:      Buffer.from([0x10, 0x53]),
+  // EHome 2.0/4.0
+  REG_REQ:       Buffer.from([0x10, 0x52]),
+  REG_RSP:       Buffer.from([0x10, 0x53]),
   KEEPALIVE_REQ: Buffer.from([0x10, 0x55]),
   KEEPALIVE_RSP: Buffer.from([0x10, 0x56]),
-  UNREG_REQ:    Buffer.from([0x10, 0x58]),
-  UNREG_RSP:    Buffer.from([0x10, 0x59]),
-  ALARM_REQ:    Buffer.from([0x10, 0x5E]),
-  ALARM_RSP:    Buffer.from([0x10, 0x5F]),
+  UNREG_REQ:     Buffer.from([0x10, 0x58]),
+  UNREG_RSP:     Buffer.from([0x10, 0x59]),
+  // ISUP 5.0
+  REG_REQ_V5:    Buffer.from([0x10, 0x54]),
+  REG_RSP_V5:    Buffer.from([0x10, 0x55]),
+  KA_REQ_V5:     Buffer.from([0x10, 0x57]),
+  KA_RSP_V5:     Buffer.from([0x10, 0x58]),
+  // Alarm (shared)
+  ALARM_REQ:     Buffer.from([0x10, 0x5E]),
+  ALARM_RSP:     Buffer.from([0x10, 0x5F]),
 };
 
 // Paket minimum uzunligi: komanda (2) + versiya (2) = 4 bayt
@@ -133,52 +140,86 @@ const server = net.createServer(socket => {
 
       const cmdHex = cmd.toString('hex');
 
-      // -------- Registration --------
-      if (cmdHex === '1052') {
+      // -------- Registration ISUP 5.0 (10 54) --------
+      if (cmdHex === '1054') {
         const strings = extractStrings(body);
         console.log(`  Strings:`, strings.map(s => s.value));
 
-        // Qurilmadan ma'lumotlarni ajratib olish
-        const serial  = strings[0]?.value || '';
-        const model   = strings[1]?.value || '';
-        const devId   = strings[2]?.value || remote;
+        const serial = strings[0]?.value || '';
+        const model  = strings[1]?.value || '';
+        const devId  = strings[2]?.value || serial || remote;
         deviceId = devId;
         deviceSockets[devId] = socket;
 
-        console.log(`  ✓ REGISTER: id=${devId} model=${model} serial=${serial}`);
+        console.log(`  ✓ REGISTER (ISUP 5.0): id=${devId} model=${model} serial=${serial}`);
 
-        // Javob yuborish: 10 53 + versiya + 00 (OK)
-        const rsp = buildResponse(CMD.REG_RSP, ver, 0x00);
+        // Javob: 10 55 + versiya + 00 (OK)
+        const rsp = buildResponse(CMD.REG_RSP_V5, ver, 0x00);
         socket.write(rsp);
         console.log(`  ► RSP: ${rsp.toString('hex').toUpperCase()}`);
 
-        // Redis ga device_online event
         pub.publish(EVENTS_CH, JSON.stringify({
           type: 'device_online', deviceId: devId,
           ip: socket.remoteAddress, model, serial,
           timestamp: ts(),
         }));
 
-        // Consume the packet — butun rxBuf shu bitta paket edi
-        rxBuf = Buffer.alloc(0);
+        rxBuf = rxBuf.slice(rxBuf.length);
         return;
       }
 
-      // -------- Keepalive --------
+      // -------- Registration EHome 2.0/4.0 (10 52) --------
+      if (cmdHex === '1052') {
+        const strings = extractStrings(body);
+        console.log(`  Strings:`, strings.map(s => s.value));
+
+        const serial = strings[0]?.value || '';
+        const model  = strings[1]?.value || '';
+        const devId  = strings[2]?.value || serial || remote;
+        deviceId = devId;
+        deviceSockets[devId] = socket;
+
+        console.log(`  ✓ REGISTER (EHome): id=${devId} model=${model} serial=${serial}`);
+
+        const rsp = buildResponse(CMD.REG_RSP, ver, 0x00);
+        socket.write(rsp);
+        console.log(`  ► RSP: ${rsp.toString('hex').toUpperCase()}`);
+
+        pub.publish(EVENTS_CH, JSON.stringify({
+          type: 'device_online', deviceId: devId,
+          ip: socket.remoteAddress, model, serial,
+          timestamp: ts(),
+        }));
+
+        rxBuf = rxBuf.slice(rxBuf.length);
+        return;
+      }
+
+      // -------- Keepalive ISUP 5.0 (10 57) --------
+      if (cmdHex === '1057') {
+        const rsp = buildResponse(CMD.KA_RSP_V5, ver, 0x00);
+        socket.write(rsp);
+        process.stdout.write(`♥`);
+        rxBuf = rxBuf.slice(rxBuf.length);
+        return;
+      }
+
+      // -------- Keepalive EHome (10 55) --------
       if (cmdHex === '1055') {
         const rsp = buildResponse(CMD.KEEPALIVE_RSP, ver, 0x00);
         socket.write(rsp);
         process.stdout.write(`♥`);
-        rxBuf = Buffer.alloc(0);
+        rxBuf = rxBuf.slice(rxBuf.length);
         return;
       }
 
-      // -------- Unregister --------
-      if (cmdHex === '1058') {
-        const rsp = buildResponse(CMD.UNREG_RSP, ver, 0x00);
+      // -------- Unregister (10 58 / 10 59) --------
+      if (cmdHex === '1058' || cmdHex === '105a') {
+        const rspCmd = cmdHex === '1058' ? CMD.UNREG_RSP : Buffer.from([0x10, 0x5B]);
+        const rsp = buildResponse(rspCmd, ver, 0x00);
         socket.write(rsp);
         console.log(`  UNREGISTER: ${deviceId}`);
-        rxBuf = Buffer.alloc(0);
+        rxBuf = rxBuf.slice(rxBuf.length);
         return;
       }
 
