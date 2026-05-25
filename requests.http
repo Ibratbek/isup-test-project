@@ -1,0 +1,197 @@
+### Hikvision ISUP Backend — API Test fayllar (VS Code REST Client)
+### O'zgaruvchilar
+@baseUrl = http://localhost:3000
+@apiKey  = your-api-key-here
+
+### =====================================================================
+### Health Check
+### =====================================================================
+
+# @name health
+GET {{baseUrl}}/health
+
+###
+
+### =====================================================================
+### DEVICES
+### =====================================================================
+
+# @name listDevices
+GET {{baseUrl}}/api/devices
+X-API-Key: {{apiKey}}
+
+###
+
+# @name getDevice
+GET {{baseUrl}}/api/devices/DS-K1T671MF-001
+X-API-Key: {{apiKey}}
+
+###
+
+# @name deviceStatus
+GET {{baseUrl}}/api/devices/DS-K1T671MF-001/status
+X-API-Key: {{apiKey}}
+
+###
+
+# @name openDoor
+POST {{baseUrl}}/api/devices/DS-K1T671MF-001/open-door
+Content-Type: application/json
+X-API-Key: {{apiKey}}
+
+{
+  "doorIndex": 1
+}
+
+###
+
+# @name rebootDevice
+POST {{baseUrl}}/api/devices/DS-K1T671MF-001/reboot
+X-API-Key: {{apiKey}}
+
+###
+
+# @name syncTime
+POST {{baseUrl}}/api/devices/DS-K1T671MF-001/sync-time
+X-API-Key: {{apiKey}}
+
+###
+
+# @name deviceInfo
+GET {{baseUrl}}/api/devices/DS-K1T671MF-001/info
+X-API-Key: {{apiKey}}
+
+###
+
+### =====================================================================
+### USERS
+### =====================================================================
+
+# @name listUsers
+GET {{baseUrl}}/api/users
+X-API-Key: {{apiKey}}
+
+###
+
+# @name listUsersByDept
+GET {{baseUrl}}/api/users?department=IT
+X-API-Key: {{apiKey}}
+
+###
+
+# @name createUser
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+X-API-Key: {{apiKey}}
+
+{
+  "employee_id": "EMP001",
+  "full_name": "Alisher Umarov",
+  "card_number": "1234567890",
+  "phone": "+998901234567",
+  "department": "IT"
+}
+
+###
+
+# @name createUserWithFace
+POST {{baseUrl}}/api/users
+Content-Type: application/json
+X-API-Key: {{apiKey}}
+
+{
+  "employee_id": "EMP002",
+  "full_name": "Mohira Karimova",
+  "card_number": "9876543210",
+  "department": "HR",
+  "faceImageBase64": "data:image/jpeg;base64,/9j/4AAQSkZJRgAB..."
+}
+
+###
+
+# @name getUser
+GET {{baseUrl}}/api/users/EMP001
+X-API-Key: {{apiKey}}
+
+###
+
+# @name updateUser
+PUT {{baseUrl}}/api/users/EMP001
+Content-Type: application/json
+X-API-Key: {{apiKey}}
+
+{
+  "full_name": "Alisher Umarov (yangilangan)",
+  "department": "DevOps"
+}
+
+###
+
+# @name syncUserToDevice
+POST {{baseUrl}}/api/users/EMP001/sync/DS-K1T671MF-001
+X-API-Key: {{apiKey}}
+
+###
+
+# @name bulkSync
+POST {{baseUrl}}/api/users/bulk-sync
+Content-Type: application/json
+X-API-Key: {{apiKey}}
+
+{
+  "userId": "EMP001"
+}
+
+###
+
+# @name deleteUser
+DELETE {{baseUrl}}/api/users/EMP001
+X-API-Key: {{apiKey}}
+
+###
+
+### =====================================================================
+### EVENTS
+### =====================================================================
+
+# @name listEvents
+GET {{baseUrl}}/api/events
+X-API-Key: {{apiKey}}
+
+###
+
+# @name eventsByDevice
+GET {{baseUrl}}/api/events?deviceId=DS-K1T671MF-001&limit=20
+X-API-Key: {{apiKey}}
+
+###
+
+# @name eventsByUser
+GET {{baseUrl}}/api/events?userId=EMP001&type=face_recognition
+X-API-Key: {{apiKey}}
+
+###
+
+# @name eventsByDate
+GET {{baseUrl}}/api/events?dateFrom=2025-05-01&dateTo=2025-05-31&page=1&limit=100
+X-API-Key: {{apiKey}}
+
+###
+
+# @name attendance
+GET {{baseUrl}}/api/events/attendance?dateFrom=2025-05-01&dateTo=2025-05-31
+X-API-Key: {{apiKey}}
+
+###
+
+# @name attendanceByDept
+GET {{baseUrl}}/api/events/attendance?department=IT&dateFrom=2025-05-25
+X-API-Key: {{apiKey}}
+
+###
+
+### =====================================================================
+### WebSocket test (wscat yoki Postman WebSocket)
+### =====================================================================
+# wscat -c "ws://localhost:3000/ws/events?apiKey=your-api-key-here"
+# Yoki Postman → New → WebSocket Request

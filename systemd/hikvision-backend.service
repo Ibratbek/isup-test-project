@@ -1,0 +1,34 @@
+[Unit]
+Description=Hikvision ISUP Node.js Backend API
+Documentation=https://github.com/your-org/hikvision-isup
+After=network.target redis.service isup-bridge.service
+Wants=isup-bridge.service
+
+[Service]
+Type=simple
+User=hikvision
+Group=hikvision
+
+WorkingDirectory=/opt/hikvision-isup/backend
+ExecStart=/usr/bin/node src/index.js
+ExecReload=/bin/kill -HUP $MAINPID
+
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hikvision-backend
+
+EnvironmentFile=/opt/hikvision-isup/backend/.env
+
+# Resource limits
+LimitNOFILE=65535
+
+# Security
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

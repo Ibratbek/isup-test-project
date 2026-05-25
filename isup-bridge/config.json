@@ -1,0 +1,16 @@
+{
+  "isup": {
+    "listen_ip": "0.0.0.0",
+    "listen_port": 7660,
+    "max_devices": 100
+  },
+  "redis": {
+    "host": "127.0.0.1",
+    "port": 6379
+  },
+  "sdk": {
+    "log_level": 3,
+    "log_path": "/var/log/hikvision-isup/"
+  },
+  "log_level": "info"
+}
