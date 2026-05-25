@@ -1,7 +1,10 @@
 'use strict';
 
-const net   = require('net');
-const Redis = require('ioredis');
+const net    = require('net');
+const crypto = require('crypto');
+const Redis  = require('ioredis');
+
+const ENCRYPTION_KEY = process.env.ISUP_KEY || 'hrline1234';
 
 const ISUP_PORT     = 7660;
 const REDIS_HOST    = '127.0.0.1';
@@ -100,6 +103,29 @@ function extractStrings(data) {
 
 function ts() { return new Date().toISOString(); }
 
+// Paketdan auth block ni ajratib olish (29 tag dan keyin: devId + auth bytes)
+function extractAuthBlock(body) {
+  for (let i = 0; i < body.length - 2; i++) {
+    if (body[i] === 0x29) {
+      const fieldLen = body[i + 1];
+      if (i + 2 + fieldLen <= body.length) {
+        const fieldData = body.slice(i + 2, i + 2 + fieldLen);
+        const devIdLen  = fieldData[0];
+        if (devIdLen + 1 < fieldData.length) {
+          return fieldData.slice(devIdLen + 1); // auth bytes
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Server auth proof: HMAC-SHA256(authBlock, SHA256(encryptionKey))
+function computeServerAuth(authBlock) {
+  const keyDerived = crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
+  return crypto.createHmac('sha256', keyDerived).update(authBlock).digest();
+}
+
 // -----------------------------------------------------------------------
 // Redis
 // -----------------------------------------------------------------------
@@ -140,8 +166,9 @@ const server = net.createServer(socket => {
 
       const cmdHex = cmd.toString('hex');
 
-      // -------- Registration ISUP 5.0 (10 54) --------
-      if (cmdHex === '1054') {
+      // -------- Registration (ISUP 5.0: 1054, EHome: 1052) --------
+      if (cmdHex === '1054' || cmdHex === '1052') {
+        const isV5    = cmdHex === '1054';
         const strings = extractStrings(body);
         console.log(`  Strings:`, strings.map(s => s.value));
 
@@ -151,39 +178,26 @@ const server = net.createServer(socket => {
         deviceId = devId;
         deviceSockets[devId] = socket;
 
-        console.log(`  ✓ REGISTER (ISUP 5.0): id=${devId} model=${model} serial=${serial}`);
+        console.log(`  ✓ REGISTER (${isV5 ? 'ISUP 5.0' : 'EHome'}): id=${devId} model=${model} serial=${serial}`);
 
-        // Javob: 10 55 + versiya + 00 (OK)
-        const rsp = buildResponse(CMD.REG_RSP_V5, ver, 0x00);
+        // Server auth proof ni hisoblash
+        const authBlock = extractAuthBlock(body);
+        let extraFields = Buffer.alloc(0);
+        if (authBlock && authBlock.length > 0) {
+          const serverAuth = computeServerAuth(authBlock);
+          console.log(`  Auth block (${authBlock.length}B): ${authBlock.toString('hex')}`);
+          console.log(`  Server auth: ${serverAuth.toString('hex')}`);
+          // [tag=0x29][len][hmac_32_bytes]
+          extraFields = Buffer.concat([
+            Buffer.from([0x29, serverAuth.length]),
+            serverAuth,
+          ]);
+        }
+
+        const rspCmd = isV5 ? CMD.REG_RSP_V5 : CMD.REG_RSP;
+        const rsp    = buildResponse(rspCmd, ver, 0x00, extraFields);
         socket.write(rsp);
-        console.log(`  ► RSP: ${rsp.toString('hex').toUpperCase()}`);
-
-        pub.publish(EVENTS_CH, JSON.stringify({
-          type: 'device_online', deviceId: devId,
-          ip: socket.remoteAddress, model, serial,
-          timestamp: ts(),
-        }));
-
-        rxBuf = rxBuf.slice(rxBuf.length);
-        return;
-      }
-
-      // -------- Registration EHome 2.0/4.0 (10 52) --------
-      if (cmdHex === '1052') {
-        const strings = extractStrings(body);
-        console.log(`  Strings:`, strings.map(s => s.value));
-
-        const serial = strings[0]?.value || '';
-        const model  = strings[1]?.value || '';
-        const devId  = strings[2]?.value || serial || remote;
-        deviceId = devId;
-        deviceSockets[devId] = socket;
-
-        console.log(`  ✓ REGISTER (EHome): id=${devId} model=${model} serial=${serial}`);
-
-        const rsp = buildResponse(CMD.REG_RSP, ver, 0x00);
-        socket.write(rsp);
-        console.log(`  ► RSP: ${rsp.toString('hex').toUpperCase()}`);
+        console.log(`  ► RSP (${rsp.length}B): ${rsp.toString('hex').toUpperCase()}`);
 
         pub.publish(EVENTS_CH, JSON.stringify({
           type: 'device_online', deviceId: devId,
